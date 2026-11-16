@@ -32,4 +32,4 @@ Course basis: Lecture 2 sections 2.1.1 and 2.4.1; Lecture 3 section 3.2.
 
 ## Data and deployment
 
-Layouts stay in browser local storage unless exported. Imported JSON is validated before use. There is no server, account system or cloud database. Export layouts for reliable backups. This project has not been published. GitHub Pages build/deployment setup can be added later.
+Layouts stay in browser local storage unless exported. Imported JSON is validated before use. There is no server, account system or cloud database. Export layouts for reliable backups. Live site: https://suhyoonbeom.github.io/EE-582-Project/. The GitHub Actions workflow checks the signal model, builds the website, and deploys it to GitHub Pages on each push to main. In repository Settings > Pages, set Source to GitHub Actions. Local development continues to use the root URL printed by Vite.
