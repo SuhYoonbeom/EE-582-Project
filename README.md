@@ -12,6 +12,8 @@ An educational Wi-Fi planning prototype by **Matthew Suh** for **EE 582: Wireles
 - 2.4 GHz or 5 GHz, adjustable transmit power, signal target, and path-loss exponent.
 - Coverage heatmap and strongest-AP links for each client.
 - Client results showing signal in dBm, margin in dB, and coverage status.
+- Client signal calculation showing the strongest AP, distance, separate path-loss terms, crossed-wall losses, received power, and margin.
+- Reset to the default office and radio settings, with confirmation and Undo.
 - Browser-local autosave and JSON import/export.
 
 ## How to use it
@@ -26,9 +28,27 @@ An educational Wi-Fi planning prototype by **Matthew Suh** for **EE 582: Wireles
 
 Frequency and transmit power are separate settings: frequency selects the band, while transmit power controls the assumed AP output power. A higher path-loss exponent makes the signal decrease faster with distance.
 
+Select a client in the coverage table or in **Client signal calculation** to inspect its link budget. The breakdown updates when the layout or radio settings change. Distances below 1 m use 1 m in the model.
+
+**Reset to default** restores the office layout and radio defaults after confirmation. Undo restores the previous layout and radio settings during the current session. Export first if you need a lasting backup.
+
 ## Example demonstration
 
 Load the office preset and note a client's signal. Change from 2.4 GHz to 5 GHz while keeping the other settings fixed, then compare its signal again. Move an AP closer to a client or add a wall across its signal path to see how the estimate changes. Export each layout to keep multiple designs.
+
+### Draft 3 placement comparison
+
+Import `examples/draft3-baseline.json` and `examples/draft3-revised.json` in turn. Both use the same 30 × 20 m office, six clients, walls, 2.4 GHz, 20 dBm, exponent 2.6, and a -67 dBm target. Only AP coordinates change.
+
+| Metric | Baseline | Revised |
+| --- | --- | --- |
+| AP 1 position (m) | (1, 1) | (5, 5) |
+| AP 2 position (m) | (3, 1) | (24, 14) |
+| Clients meeting target | 5 of 6 | 6 of 6 |
+| Weakest client signal | -68.01 dBm | -51.11 dBm |
+| Minimum client margin | -1.01 dB | 15.89 dB |
+
+These are modeled results for two manually chosen designs, not measurements or proof of optimal placement. Some individual clients can have lower signal after redistribution even when minimum coverage improves.
 
 ## Signal model
 

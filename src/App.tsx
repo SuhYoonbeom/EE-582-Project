@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Stage, Layer, Rect, Circle, Line, Text, Group } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
-import { bestLink, defaults, preset } from './model'
+import { bestLink, defaults, preset, signalBreakdown } from './model'
 import type { Device, Plan, Point, Settings } from './model'
 import './App.css'
 type Tool = 'select' | 'ap' | 'client' | 'wall'
@@ -20,12 +20,14 @@ function App(){
   const [tool,setTool]=useState<Tool>('select'),[selected,setSelected]=useState<string|null>(null)
   const [start,setStart]=useState<Point|null>(null),[cursor,setCursor]=useState<Point|null>(null)
   const [heat,setHeat]=useState(true),[links,setLinks]=useState(true),[wallLoss,setWallLoss]=useState(5)
-  const [message,setMessage]=useState(''),[size,setSize]=useState(800),[history,setHistory]=useState<Plan[]>([])
+  const [message,setMessage]=useState(''),[size,setSize]=useState(800),[history,setHistory]=useState<{plan:Plan;settings:Settings}[]>([])
+  const [confirmReset,setConfirmReset]=useState(false)
   const host=useRef<HTMLDivElement>(null),file=useRef<HTMLInputElement>(null)
   useEffect(()=>{const el=host.current;if(!el)return;const o=new ResizeObserver(([e])=>setSize(e.contentRect.width));o.observe(el);return()=>o.disconnect()},[])
   useEffect(()=>{try{localStorage.setItem(key,JSON.stringify({plan,settings}))}catch{/* Export is also available. */}},[plan,settings])
-  function commit(next:Plan){setHistory(h=>[...h.slice(-29),plan]);setPlan(next)}
-  function undo(){const p=history.at(-1);if(p){setPlan(p);setHistory(h=>h.slice(0,-1));setSelected(null);setStart(null)}}
+  function commit(next:Plan){setHistory(h=>[...h.slice(-29),{plan,settings}]);setPlan(next)}
+  function undo(){const p=history.at(-1);if(p){setPlan(p.plan);setSettings(p.settings);setHistory(h=>h.slice(0,-1));setSelected(null);setStart(null);setCursor(null);setMessage("Previous layout and radio settings restored.")}}
+  function reset(){commit(preset('office'));setSettings({...defaults});choose('select');setSelected(null);setHeat(true);setLinks(true);setWallLoss(5);setConfirmReset(false);setMessage('Default office and radio settings restored. Undo restores your previous layout and radio settings.')}
   function choose(t:Tool){setTool(t);setStart(null);setCursor(null)}
   const margin=30,scale=Math.max(1,(size-60)/plan.width),height=plan.height*scale+60
   const px=(x:number)=>margin+x*scale,py=(y:number)=>margin+y*scale
@@ -42,12 +44,15 @@ function App(){
   const aps=plan.devices.filter(d=>d.kind==='ap'),clients=plan.devices.filter(d=>d.kind==='client')
   const results=clients.map(client=>({client,link:bestLink(client,plan,settings)})),covered=results.filter(r=>r.link&&r.link.dbm>=settings.threshold).length
   const node=plan.devices.find(d=>d.id===selected),wall=plan.walls.find(w=>w.id===selected)
+  const selectedLink=node?.kind==='client'?bestLink(node,plan,settings):undefined
+  const breakdown=node&&selectedLink?signalBreakdown(selectedLink.ap,node,plan.walls,settings):undefined
   const tiles=[]
   if(heat&&aps.length){const step=Math.max(plan.width,plan.height)/45;for(let y=0;y<plan.height;y+=step)for(let x=0;x<plan.width;x+=step){const dbm=bestLink({x:x+step/2,y:y+step/2},plan,settings)!.dbm;tiles.push(<Rect key={`${x},${y}`} x={px(x)} y={py(y)} width={Math.min(step,plan.width-x)*scale+.2} height={Math.min(step,plan.height-y)*scale+.2} fill={`hsl(${clamp((dbm+90)*2.6,0,155)},65%,48%)`} opacity={.24} listening={false}/> )}}
   function download(){const url=URL.createObjectURL(new Blob([JSON.stringify({plan,settings},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='wifi-layout.json';a.click();URL.revokeObjectURL(url);setMessage('Layout exported.')}
   function num(label:string,value:number,fn:(n:number)=>void,min:number,max:number,step=1){return <label className="field">{label}<input type="number" value={value} min={min} max={max} step={step} onChange={e=>{const n=e.target.valueAsNumber;if(Number.isFinite(n))fn(clamp(n,min,max))}}/></label>}
   function resize(axis:'width'|'height',n:number){const xy=axis==='width'?'x':'y';commit({...plan,[axis]:n,devices:plan.devices.map(d=>({...d,[xy]:Math.min(n,d[xy])})),walls:plan.walls.map(w=>({...w,a:{...w.a,[xy]:Math.min(n,w.a[xy])},b:{...w.b,[xy]:Math.min(n,w.b[xy])}}))})}
-  return <div className="app"><header><div className="brand"><span className="brand-icon">◎</span><div><span className="eyebrow">EE 582 · WIRELESS NETWORK DESIGN</span><h1>Wi-Fi Planner <span>/ prototype</span></h1></div></div><div className="header-actions"><button onClick={()=>file.current?.click()}>Import layout</button><button className="primary" onClick={download}>Export layout ↗</button></div></header>
+  return <div className="app"><header><div className="brand"><span className="brand-icon">◎</span><div><span className="eyebrow">EE 582 · WIRELESS NETWORK DESIGN</span><h1>Wi-Fi Planner <span>/ prototype</span></h1></div></div><div className="header-actions"><button onClick={()=>setConfirmReset(true)}>Reset to default</button><button onClick={()=>file.current?.click()}>Import layout</button><button className="primary" onClick={download}>Export layout ↗</button></div></header>
+    {confirmReset&&<section className="reset-confirm" aria-label="Reset confirmation"><p>Restore the default office layout and radio settings? This replaces your current design in this browser. Export first to keep a separate copy.</p><div><button className="primary" onClick={reset}>Restore defaults</button><button onClick={()=>setConfirmReset(false)}>Cancel</button></div></section>}
     <input ref={file} hidden type="file" accept=".json,application/json" onChange={async e=>{const f=e.target.files?.[0];if(!f)return;try{if(f.size>1e6)throw Error();const d=JSON.parse(await f.text());if(!valid(d))throw Error();commit(d.plan);setSettings(d.settings);setSelected(null);setStart(null);setMessage('Layout imported.')}catch{setMessage('Choose a valid Wi-Fi Planner JSON file.')}e.target.value=''}}/>
     <main><aside><section><div className="section-label">01 / DESIGN SPACE</div><h2>Start with a layout</h2><select aria-label="Preset layout" value="" onChange={e=>{if(e.target.value){commit(preset(e.target.value));setSelected(null);setStart(null);setMessage('Preset loaded. Undo restores the previous layout.')}}}><option value="" disabled>Choose a preset…</option><option value="office">Office with rooms</option><option value="open">Open workspace</option><option value="blank">Blank canvas</option></select><div className="pair">{num('Width (m)',plan.width,n=>resize('width',n),5,100)}{num('Height (m)',plan.height,n=>resize('height',n),5,100)}</div></section>
     <section><div className="section-label">02 / RADIO SETTINGS</div><h2>Define the model</h2><label className="field">Frequency band<select value={settings.frequency} onChange={e=>setSettings({...settings,frequency:Number(e.target.value)})}><option value="2.4">2.4 GHz</option><option value="5">5 GHz</option></select></label>{num('AP transmit power (dBm)',settings.power,n=>setSettings({...settings,power:n}),0,30)}{num('Signal target (dBm)',settings.threshold,n=>setSettings({...settings,threshold:n}),-90,-40)}{num('Path-loss exponent',settings.exponent,n=>setSettings({...settings,exponent:n}),2,4,.1)}<p className="hint">Radio settings apply to all access points. Coordinates are in meters.</p></section>
@@ -64,6 +69,25 @@ function App(){
     {plan.devices.map(d=><Group key={d.id} x={px(d.x)} y={py(d.y)} draggable={tool==='select'} onClick={e=>{if(tool==='select'){e.cancelBubble=true;setSelected(d.id)}}} onTap={e=>{if(tool==='select'){e.cancelBubble=true;setSelected(d.id)}}} onDragStart={()=>setSelected(d.id)} onDragEnd={e=>{const p=point(e.target.x(),e.target.y());e.target.position({x:px(p.x),y:py(p.y)});commit({...plan,devices:plan.devices.map(v=>v.id===d.id?{...v,...p}:v)})}}><Circle radius={d.kind==='ap'?13:8} fill={d.kind==='ap'?'#087c70':'#ffffff'} stroke={selected===d.id?'#e79c35':d.kind==='ap'?'#ffffff':'#416b80'} strokeWidth={selected===d.id?3:2} shadowColor="#18343d" shadowOpacity={.15} shadowBlur={5}/>{d.kind==='ap'&&<Text text="AP" x={-8} y={-5} fontSize={10} fill="white" listening={false}/>}<Text text={d.name} x={-45} y={18} width={90} align="center" fontSize={11} fontStyle="bold" fill="#123d4c" listening={false}/></Group>)}
     </Layer></Stage></div><div className="canvas-footer"><span>{tool==='wall'?(start?'Click the wall end point.':'Click two points to draw a wall.'):tool==='select'?'Drag nodes to move them. Select walls to edit endpoints.':'Click the layout to place a '+(tool==='ap'?'new access point.':'new client.')}</span><button className="text-button" onClick={()=>choose('select')}>{start?'Cancel wall':'Select tool'}</button></div>{heat&&<div className="legend"><span>Estimated received power</span><span>−90 dBm</span><div className="ramp"/><span>−30 dBm</span></div>}</div>
     <div className="results-heading"><h2>Client coverage</h2><span>{covered} of {clients.length} clients meet {settings.threshold} dBm</span></div><div className="table-wrap"><table><thead><tr><th>CLIENT NODE</th><th>STRONGEST AP</th><th>SIGNAL</th><th>MARGIN</th><th>STATUS</th></tr></thead><tbody>{results.length?results.map(({client,link})=><tr key={client.id}><td><button className="text-button" onClick={()=>{choose('select');setSelected(client.id)}}>{client.name}</button></td><td>{link?.ap.name??'No access point'}</td><td>{link?link.dbm.toFixed(1)+' dBm':'—'}</td><td>{link?(link.dbm-settings.threshold).toFixed(1)+' dB':'—'}</td><td><span className={'status '+(link&&link.dbm>=settings.threshold?'good':'weak')}>{link?(link.dbm>=settings.threshold?'Meets target':'Below target'):'No AP'}</span></td></tr>):<tr><td colSpan={5}>Add client nodes to evaluate your design.</td></tr>}</tbody></table></div>
+    <section className="link-breakdown" aria-labelledby="breakdown-heading">
+      <div className="breakdown-heading"><div><h2 id="breakdown-heading">Client signal calculation</h2><p>Select a client to see the link budget for its strongest access point.</p></div><label className="field">Client<select value={node?.kind==='client'?node.id:''} onChange={e=>{choose('select');setSelected(e.target.value||null)}}><option value="">Choose a client</option>{clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label></div>
+      {node?.kind==='client'&&breakdown&&selectedLink?<>
+        <p className="link-name"><strong>{node.name}</strong> receives its strongest modeled signal from <strong>{selectedLink.ap.name}</strong>.</p>
+        <dl className="budget-grid">
+          <div><dt>AP transmit power</dt><dd>{settings.power.toFixed(1)} dBm</dd></div>
+          <div><dt>AP-to-client distance</dt><dd>{breakdown.distance.toFixed(2)} m</dd></div>
+          <div><dt>Reference loss at 1 m ({settings.frequency} GHz)</dt><dd>{breakdown.referenceLoss.toFixed(2)} dB</dd></div>
+          <div><dt>Additional distance loss (n = {settings.exponent})</dt><dd>{breakdown.distanceLoss.toFixed(2)} dB</dd></div>
+          <div><dt>Wall loss ({breakdown.crossedWalls.length} crossed)</dt><dd>{breakdown.wallLoss.toFixed(2)} dB</dd></div>
+          <div><dt>Estimated received power</dt><dd>{breakdown.dbm.toFixed(2)} dBm</dd></div>
+          <div><dt>Signal target</dt><dd>{settings.threshold.toFixed(1)} dBm</dd></div>
+          <div><dt>Margin above target</dt><dd>{breakdown.margin.toFixed(2)} dB <span className={'status '+(breakdown.margin>=0?'good':'weak')}>{breakdown.margin>=0?'Meets target':'Below target'}</span></dd></div>
+        </dl>
+        <p className="budget-equation">{settings.power.toFixed(2)} − {breakdown.referenceLoss.toFixed(2)} − {breakdown.distanceLoss.toFixed(2)} − {breakdown.wallLoss.toFixed(2)} ≈ {breakdown.dbm.toFixed(2)} dBm</p>
+        {breakdown.crossedWalls.length>0&&<p className="budget-note">Crossed walls: {breakdown.crossedWalls.map((w)=>`Wall ${plan.walls.findIndex(v=>v.id===w.id)+1}: ${w.loss.toFixed(2)} dB`).join('; ')}.</p>}
+        <p className="budget-note">Distance loss = 10 × {settings.exponent} × log₁₀({breakdown.modeledDistance.toFixed(2)} / 1). {breakdown.distance<1?'The actual distance is below 1 m, so the model uses 1 m. ':''}Displayed terms are rounded. Antenna gains are 0 dBi. Wall losses are assumptions.</p>
+      </>:<p className="budget-note">{node?.kind==='client'?'No access point is available. Add an AP to calculate this link.':clients.length?'Choose a client above or click its name in the coverage table.':'Add a client node to inspect its signal calculation.'}</p>}
+    </section>
     <details><summary>Model assumptions & course connections</summary><p>Received power = transmit power − reference loss at 1 m − 10 × path-loss exponent × log₁₀(distance / 1 m) − crossed-wall losses. The reference loss uses the selected frequency. Distances below 1 m are held at 1 m. Antenna gains are fixed at 0 dBi.</p><p>Wall losses are editable assumptions, not calibrated material measurements. Strongest-AP links are suggestions; interference, capacity, fading, traffic and roaming are not simulated. Validate designs with real measurements.</p><p>Course basis: Lecture 2, sections 2.1.1 and 2.4.1 (path loss and link budgets); Lecture 3, section 3.2 (WLAN architecture).</p></details><p className="notice" role="status">{message||'Layouts save automatically in this browser. Export a copy to keep or share your work.'}</p>
     </div></main><footer>EE 582 · Matthew Suh <span>Educational planning prototype · Estimated downlink coverage</span></footer></div>
 }

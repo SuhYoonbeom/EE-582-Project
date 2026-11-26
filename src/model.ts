@@ -11,11 +11,18 @@ export function crosses(a: Point, b: Point, c: Point, d: Point): boolean {
   const t = ((c.x-a.x)*sy-(c.y-a.y)*sx)/den, u = ((c.x-a.x)*ry-(c.y-a.y)*rx)/den
   return t > 1e-7 && t < 1-1e-7 && u >= 0 && u <= 1
 }
-export function signal(ap: Point, client: Point, walls: Wall[], settings: Settings): number {
+export function signalBreakdown(ap: Point, client: Point, walls: Wall[], settings: Settings) {
   const referenceLoss = 20*Math.log10(4*Math.PI*settings.frequency*1e9/299792458)
-  const distance = Math.max(1, Math.hypot(client.x-ap.x,client.y-ap.y))
-  const loss = walls.reduce((sum,w)=>sum+(crosses(ap,client,w.a,w.b)?w.loss:0),0)
-  return settings.power-referenceLoss-10*settings.exponent*Math.log10(distance)-loss
+  const distance = Math.hypot(client.x-ap.x,client.y-ap.y)
+  const modeledDistance = Math.max(1, distance)
+  const distanceLoss = 10*settings.exponent*Math.log10(modeledDistance)
+  const crossedWalls = walls.filter(w=>crosses(ap,client,w.a,w.b))
+  const wallLoss = crossedWalls.reduce((sum,w)=>sum+w.loss,0)
+  const dbm = settings.power-referenceLoss-distanceLoss-wallLoss
+  return { distance, modeledDistance, referenceLoss, distanceLoss, crossedWalls, wallLoss, dbm, margin: dbm-settings.threshold }
+}
+export function signal(ap: Point, client: Point, walls: Wall[], settings: Settings): number {
+  return signalBreakdown(ap,client,walls,settings).dbm
 }
 export function bestLink(point: Point, plan: Plan, settings: Settings) {
   return plan.devices.filter(d=>d.kind==='ap').map(ap=>({ ap, dbm: signal(ap,point,plan.walls,settings) })).sort((a,b)=>b.dbm-a.dbm)[0]
